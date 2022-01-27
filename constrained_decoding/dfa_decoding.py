@@ -8,7 +8,7 @@ from transformers import (
     LogitsProcessor, 
 )
 
-from dfa import DFA
+from .dfa import DFA
 
 # Helper functions
 def set_scores_to_inf_for_banned_tokens(scores, banned_tokens):

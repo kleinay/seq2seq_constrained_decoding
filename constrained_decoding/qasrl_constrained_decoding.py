@@ -8,9 +8,9 @@ import numpy as np
 import transformers
 from transformers import AutoTokenizer, LogitsProcessorList
 
-from set_decoding import SetDecodingLogitsProcessor
-from dfa_decoding import DFA
-from dfa_constrained_beam_search import set_model_beam_search_to_dfa_constrained
+from .set_decoding import SetDecodingLogitsProcessor
+from .dfa import DFA
+from .dfa_constrained_beam_search import set_model_beam_search_to_dfa_constrained
 
 # Define a LogitsProcessorList that enforces valid qaslr-seq2seq output
 
@@ -125,7 +125,7 @@ def get_qasrl_full_sequence_dfa(input_sentence: str, tokenizer, special_tokens_c
 
 
 def test_qasrl_question_dfa():
-    from pipeline import QASRL_Pipeline
+    from .pipeline import QASRL_Pipeline
     pipe = QASRL_Pipeline("kleinay/qanom-seq2seq-model-joint")
     tokenizer = pipe.tokenizer
     qdfa = get_qasrl_question_dfa(constrain_verb=False)
@@ -144,7 +144,7 @@ def test_qasrl_question_dfa():
     assert apply("how _ _ verb someone _ something ?")[2]
 
 def test_full_qasrl_dfa():
-    from pipeline import QASRL_Pipeline
+    from .pipeline import QASRL_Pipeline
     pipe = QASRL_Pipeline("kleinay/qanom-seq2seq-model-joint")
     tokenizer = pipe.tokenizer
     sentence = "The doctor was interested in Luke 's treatment yesterday given by the other doctor ."
@@ -159,7 +159,7 @@ if __name__ == "__main__":
     # test_get_qasrl_question_dfa()
     # test_full_qasrl_dfa()
     # test on real model
-    from pipeline import QASRL_Pipeline
+    from .pipeline import QASRL_Pipeline
     pipe = QASRL_Pipeline("kleinay/qanom-seq2seq-model-joint")
     sentence = "The doctor was interested to know about Luke 's bio-feedback treatment given by the nurse yesterday."
     # sentence = "The student was interested in Luke 's research about sea animals ."

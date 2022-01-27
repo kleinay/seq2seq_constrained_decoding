@@ -18,8 +18,9 @@ from transformers.generation_utils import (
 )
 from transformers.generation_stopping_criteria import validate_stopping_criteria
 import warnings
+import numpy as np
 
-from dfa_decoding import *
+from .dfa import DFA  
        
     
 def dfa_constrained_beam_search(
