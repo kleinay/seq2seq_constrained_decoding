@@ -1,5 +1,4 @@
 from typing import List, Iterable, Tuple, Any, Union, Dict, Optional, Callable
-import itertools
 
 import torch
 import numpy as np

@@ -1,7 +1,6 @@
 from typing import List, Iterable, Tuple, Any, Union, Dict, Optional, Callable, Hashable
 
 import torch
-import pandas as pd
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM, LogitsProcessor, AutoModelForSeq2SeqLM
 
