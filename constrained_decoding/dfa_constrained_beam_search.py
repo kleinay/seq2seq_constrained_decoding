@@ -292,7 +292,7 @@ def dfa_constrained_beam_search(
 
         # @dfa: update automaton states
         if dfa:
-            current_states = current_states[beam_idx]  # take the previous states of the selected beams 
+            current_states = current_states[beam_idx.cpu()]  # take the previous states of the selected beams 
             for i, state in enumerate(current_states):
                 success, new_state = dfa.step(state, beam_next_tokens[i].item()) 
                 current_states[i] = new_state
