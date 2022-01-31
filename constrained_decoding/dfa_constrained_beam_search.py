@@ -234,7 +234,7 @@ def dfa_constrained_beam_search(
 
         # @dfa: in every iteration we are directly contraining next tokens to dfa transitions
         if dfa:
-            mask = torch.ones(next_token_scores.shape) # (batch_beam_size, vocab_size); 1 will denote forbidden tokens
+            mask = torch.ones_like(next_token_scores) # (batch_beam_size, vocab_size); 1 will denote forbidden tokens
             for i in range(len(current_states)):
                 allowed_word_ids = list(dfa[current_states[i]].keys())
                 if DFA.WILDCARD in allowed_word_ids: 
