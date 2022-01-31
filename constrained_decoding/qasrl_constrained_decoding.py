@@ -2,6 +2,7 @@ from typing import List, Iterable, Tuple, Any, Union, Dict, Optional, Callable
 import itertools
 from collections import defaultdict
 import json
+from pathlib import Path
 
 import torch
 import numpy as np
@@ -17,6 +18,8 @@ from .dfa_constrained_beam_search import set_model_beam_search_to_dfa_constraine
 separator_qa_pairs = "<QA_QA>"
 separator_q_a = "<Q_A>"
 separator_answers = "<A_A>"
+
+repo_root_path = Path(__file__).absolute().parent.parent
 
 def is_prefixed_by(list, sublist) -> bool:
     return list[:len(sublist)] == sublist
@@ -85,7 +88,7 @@ def test_get_copy_dfa():
     assert not dfa("aba")[0]
     
 def get_qasrl_question_dfa(constrain_verb: bool):
-    qasrl_slots = json.load(open("qasrl_slots.json")) 
+    qasrl_slots = json.load(open(repo_root_path / "qasrl_slots.json")) 
     # if constraining also verb to be taken from the slot vocabulary
     slots_order = ['wh', 'aux', 'subj', 'verb', 'obj', 'prep', 'obj2', '?']
     qasrl_slots_as_list = [qasrl_slots[name] for name in slots_order]
