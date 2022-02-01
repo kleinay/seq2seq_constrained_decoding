@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Callable, Optional, Union, List
 
 import torch
 import torch.distributed as dist
@@ -20,8 +20,9 @@ from transformers.generation_stopping_criteria import validate_stopping_criteria
 import warnings
 import numpy as np
 
-from .dfa import DFA  
-       
+import itertools       
+from .dfa import DFA 
+from .dfa_constrained_generate import dfa_constrained_generate 
     
 def dfa_constrained_beam_search(
     self,
@@ -37,6 +38,7 @@ def dfa_constrained_beam_search(
     output_scores: Optional[bool] = None,
     return_dict_in_generate: Optional[bool] = None,
     synced_gpus: Optional[bool] = None,
+    encoder_input_ids: Optional[torch.LongTensor] = None, # @dfa
     **model_kwargs,
 ) -> Union[BeamSearchOutput, torch.LongTensor]:
     r"""
@@ -142,8 +144,11 @@ def dfa_constrained_beam_search(
 
     >>> print("Generated:", tokenizer.batch_decode(outputs, skip_special_tokens=True))
     ```"""
-    # @dfa: get DFA from function attribute 'dfa' if exists
+    # @dfa: get DFA from function attribute 'dfa' or `dfa_factory` if exists
     dfa = vars(dfa_constrained_beam_search).get("dfa", None)
+    dfa_factory = vars(dfa_constrained_beam_search).get("dfa_factory", None)
+    tokenizer = vars(dfa_constrained_beam_search).get("tokenizer", None)
+    is_dfa = dfa or dfa_factory
     
     # init values
     logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
@@ -197,6 +202,12 @@ def dfa_constrained_beam_search(
     # @dfa: Init an array of current_states for running the dfa efficiently per beam
     if dfa:
         current_states = np.array([dfa.s0]*batch_beam_size, dtype='object') # shape (batch_size*num_beams,)
+    # dfa_constructor provided - instanciate list of dfas
+    elif dfa_factory:
+        dfas = [[dfa_factory(input_seq)] * num_beams 
+                for input_seq in encoder_input_ids] 
+        dfas = np.array(list(itertools.chain(*dfas)), dtype='object') # length batch_beam_size
+        current_states = np.array([dfa.s0 for dfa in dfas], dtype='object')
           
     this_peer_finished = False  # used by synced_gpus only
     while True:
@@ -232,11 +243,12 @@ def dfa_constrained_beam_search(
             next_token_logits, dim=-1
         )  # (batch_size * num_beams, vocab_size)
 
-        # @dfa: in every iteration we are directly contraining next tokens to dfa transitions
-        if dfa:
+        # @dfa: in every iteration we are directly constraining next tokens to dfa transitions
+        if is_dfa:
             mask = torch.ones_like(next_token_scores) # (batch_beam_size, vocab_size); 1 will denote forbidden tokens
             for i in range(len(current_states)):
-                allowed_word_ids = list(dfa[current_states[i]].keys())
+                dfa_ = dfa or dfas[i]
+                allowed_word_ids = list(dfa_[current_states[i]].keys())
                 if DFA.WILDCARD in allowed_word_ids: 
                 # allow all words
                     mask[i] = 0
@@ -291,11 +303,16 @@ def dfa_constrained_beam_search(
         beam_idx = beam_outputs["next_beam_indices"]
 
         # @dfa: update automaton states
-        if dfa:
+        if is_dfa:
             current_states = current_states[beam_idx.cpu()]  # take the previous states of the selected beams 
+            if dfa_factory:
+                # also update `dfas` to be aligned with selected beams 
+                dfas = dfas[beam_idx.cpu()]  # take the previous dfas of the selected beams 
             for i, state in enumerate(current_states):
-                success, new_state = dfa.step(state, beam_next_tokens[i].item()) 
+                dfa_ = dfa or dfas[i]
+                success, new_state = dfa_.step(state, beam_next_tokens[i].item()) 
                 current_states[i] = new_state
+            
                 
         input_ids = torch.cat([input_ids[beam_idx, :], beam_next_tokens.unsqueeze(-1)], dim=-1)
 
@@ -347,25 +364,10 @@ def dfa_constrained_beam_search(
                 hidden_states=decoder_hidden_states,
             )
     else:
-        return sequence_outputs["sequences"]
-
-
-def set_model_beam_search_to_dfa_constrained(model, dfa: DFA, tokenizer=None):
-    from transformers.generation_utils import GenerationMixin
-    assert isinstance(model, GenerationMixin), "Model must be an instance of `transformers.generation_utils.GenerationMixin` to be applied the dfa-constrained `beam_search` method."
-    # make sure DFA is adjusted to tokenizer
-    if dfa.tokenizer is None and tokenizer is not None:
-        dfa = dfa.adjust_for_tokenizer(tokenizer, convert_to_word_ids=True)
-    elif dfa.tokenizer is None and tokenizer is None:
-        raise ValueError("Either `dfa` should be adjusted to model's tokenizer, or `tokenizer` should be provided for adjusting the `dfa` to it.")
-    # provide the beam_search method with dfa
-    dfa_constrained_beam_search.dfa = dfa
-    # replace model's beam_search method with our custom function as a bound method
-    import types
-    model.beam_search = types.MethodType(dfa_constrained_beam_search, model)
+        return sequence_outputs["sequences"]     
     
 
-if __name__ == "__main__":
+def test_dfa_constrained_beam_search():
     tokenizer = T5TokenizerFast.from_pretrained("t5-small")
     dfa_d={ 0:{'my':1, 'the':1},
             1:{'name':2, 'dog':2},
@@ -396,7 +398,8 @@ if __name__ == "__main__":
     model = AutoModelForSeq2SeqLM.from_pretrained('t5-small')
     
     # replace beam search method with our custom function as a bound method
-    set_model_beam_search_to_dfa_constrained(model, dfa)
+    from .dfa_decoding import set_decoding_to_dfa_constrained
+    set_decoding_to_dfa_constrained(model, dfa)
     
     # play with additional Losits Processors
     logits_processors = LogitsProcessorList([

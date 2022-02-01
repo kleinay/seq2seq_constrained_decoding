@@ -1,4 +1,4 @@
-from typing import List, Iterable, Tuple, Any, Union, Dict, Optional
+from typing import List, Iterable, Tuple, Any, Union, Dict, Optional, Callable
 
 import torch
 import numpy as np
@@ -9,7 +9,8 @@ from transformers import (
 )
 
 from .dfa import DFA
-
+from .dfa_constrained_beam_search import dfa_constrained_beam_search
+from .dfa_constrained_generate import dfa_constrained_generate
 # Helper functions
 def set_scores_to_inf_for_banned_tokens(scores, banned_tokens):
 # src: https://huggingface.co/transformers/v4.1.1/_modules/transformers/generation_logits_process.htm
@@ -54,7 +55,11 @@ class DfaDecodingLogitsProcessor(LogitsProcessor):
     Implementation: at each step of the beam search, run the automata om previous tokens occuring in output, 
      to retrieve the current DFA state. Then ban all tokens except those permitted by the DFA's transitions.
      If current state is an accpeting state (and `enforce_accept_state`==True), add the "end-of-sequence" token 
-     to allowed tokens.     
+     to allowed tokens. 
+     
+    Note: Using this class is probably not computationally optimal.
+    You can also achieve dfa-constrained decoding using `set_decoding_to_dfa_constrained` (below).
+        
     """
     def __init__(self, tokenizer, dfa: DFA, enforce_accept_state: bool = True):
         self.tokenizer = tokenizer
@@ -104,7 +109,7 @@ class DfaDecodingLogitsProcessor(LogitsProcessor):
         return scores 
     
 
-def test_DFA_Decoding():
+def test_DFA_Decoding_LogitsProcessor():
     tokenizer = T5TokenizerFast.from_pretrained("t5-small")
     dfa_d={ 0:{'my':1, 'the':1},
             1:{'name':2, 'dog':2},
@@ -161,8 +166,50 @@ def test_DFA_Decoding():
         print(f'beam {index}: {output}')
     
 
+def set_decoding_to_dfa_constrained(model, 
+                                    dfa: Optional[DFA] = None, 
+                                    dfa_factory: Optional[Callable[[List[int], ], DFA]] = None, 
+                                    tokenizer=None):
+    """ Set the beam search method of the model to be constrained to decoding according to a Deterministic Finite Automaton.
+        Either `dfa` or `dfa_factory` must be specified. 
+    Args:
+        model ([type]): A Huggingface model supporting text generation. The function will modify `model.beam_search`. 
+        dfa (Optional[DFA]): When specified, the same DFA is used for all batch instances and beams, regardless of input sequence. Defaults to None.
+        dfa_factory (Optional[Callable[[List[int]], DFA]]): When specified, used for instanciating a `DFA` for each batch item.
+            Assumed to be a functions which gets `input_ids` (token ids of input sequence) and returns a `DFA`. Defaults to None.
+        tokenizer ([type], optional): The instanciated DFAs or provided `dfa` would be adjusted to this tokenizer.
+            if `dfa` is provided and `dfa.tokenizer` is not None, `tokenizer` would not be used.
+
+    """
+    # Validate arguments
+    if dfa is None and dfa_factory is None:
+        raise ValueError("Either `dfa` or `dfa_factory` must be provided.")
+    elif dfa is not None and dfa_factory is not None:
+        raise ValueError("Only one of `dfa` or `dfa_factory` should be provided.")
+    from transformers.generation_utils import GenerationMixin
+    assert isinstance(model, GenerationMixin), "Model must be an instance of `transformers.generation_utils.GenerationMixin` to be applied the dfa-constrained `beam_search` method."
+    
+    # Replace model's beam_search method with our custom function as a bound method
+    import types
+    model.beam_search = types.MethodType(dfa_constrained_beam_search, model)
+    # Provide our custom beam_search method with dfa or dfa_factory (as function-object attributes)  
+    if dfa:
+        # make sure DFA is adjusted to tokenizer
+        if dfa.tokenizer is None and tokenizer is not None:
+            dfa = dfa.adjust_for_tokenizer(tokenizer, convert_to_word_ids=True)
+        elif dfa.tokenizer is None and tokenizer is None:
+            raise ValueError("Either `dfa` should be adjusted to model's tokenizer, or `tokenizer` should be provided for adjusting the `dfa` to it.")
+        # provide the beam_search method with dfa
+        dfa_constrained_beam_search.dfa = dfa
+    elif dfa_factory:
+        dfa_constrained_beam_search.dfa_factory = dfa_factory
+        dfa_constrained_beam_search.tokenizer = tokenizer
+        # needs also to replace `model.generate` to our custom generate function that sends `encoder_input_ids` to model.beam_search 
+        model.generate = types.MethodType(dfa_constrained_generate, model)
+ 
+
 if __name__ == "__main__":
-    test_DFA_Decoding()
+    test_DFA_Decoding_LogitsProcessor()
     dfa_d={ 0:{'a':1, 'b':2},
             1:{'a':2, 'l':1},
             2:{'r':1, 'e':3}}

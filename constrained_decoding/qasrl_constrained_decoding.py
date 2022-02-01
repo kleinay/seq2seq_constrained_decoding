@@ -9,11 +9,12 @@ import numpy as np
 import transformers
 from transformers import AutoTokenizer, LogitsProcessorList
 
-from .set_decoding import SetDecodingLogitsProcessor
+# from .set_decoding import SetDecodingLogitsProcessor
 from .dfa import DFA
-from .dfa_constrained_beam_search import set_model_beam_search_to_dfa_constrained
+from .dfa_decoding import set_decoding_to_dfa_constrained
 
-# Define a LogitsProcessorList that enforces valid qaslr-seq2seq output
+
+# Define a LogitsProcessorList that enforces valid qasrl-seq2seq output
 
 separator_qa_pairs = "<QA_QA>"
 separator_q_a = "<Q_A>"
@@ -146,6 +147,7 @@ def test_qasrl_question_dfa():
     assert apply("how _ _ umbrella _ _ do something ?")[2]
     assert apply("how _ _ verb someone _ something ?")[2]
 
+
 def test_full_qasrl_dfa():
     from .pipeline import QASRL_Pipeline
     pipe = QASRL_Pipeline("kleinay/qanom-seq2seq-model-joint")
@@ -157,6 +159,7 @@ def test_full_qasrl_dfa():
     assert apply("how much _ _ try _ _ _ ?")[2]
     assert apply("how _ _ umbrella _ _ do something ?")[2]
     assert apply("how _ _ verb someone _ something ?")[2]
+
 
 if __name__ == "__main__":
     # test_get_qasrl_question_dfa()
@@ -175,9 +178,18 @@ if __name__ == "__main__":
     print("Baseline:")
     print(pipe(**pipe_kwargs))
     
-    dfa = get_qasrl_full_sequence_dfa(sentence, pipe.tokenizer, pipe.special_tokens)
+    # Prior method - using a single `dfa` object
+    # dfa = get_qasrl_full_sequence_dfa(sentence, pipe.tokenizer, pipe.special_tokens)
+    # # enable special dfa-constrained beam search
+    # set_decoding_to_dfa_constrained(pipe.model, dfa, pipe.tokenizer)
+    
+    # More generic - using a dfa_factory
+    def dfa_factory(token_ids): 
+        sentence = pipe.tokenizer.decode(token_ids, skip_special_tokens=True)
+        print(sentence)
+        return get_qasrl_full_sequence_dfa(sentence, pipe.tokenizer, pipe.special_tokens)
     # enable special dfa-constrained beam search
-    set_model_beam_search_to_dfa_constrained(pipe.model, dfa, pipe.tokenizer)
+    set_decoding_to_dfa_constrained(pipe.model, dfa_factory=dfa_factory, tokenizer=pipe.tokenizer)
     
     # play with additional `generate` kwargs, including LogitsProcessors
     logits_processors = LogitsProcessorList([
