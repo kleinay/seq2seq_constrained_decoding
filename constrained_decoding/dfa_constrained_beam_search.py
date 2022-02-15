@@ -147,8 +147,9 @@ def dfa_constrained_beam_search(
     # @dfa: get DFA from function attribute 'dfa' or `dfa_factory` if exists
     dfa = vars(dfa_constrained_beam_search).get("dfa", None)
     dfa_factory = vars(dfa_constrained_beam_search).get("dfa_factory", None)
-    tokenizer = vars(dfa_constrained_beam_search).get("tokenizer", None)
     is_dfa = dfa or dfa_factory
+    if is_dfa:
+        from copy import copy
     
     # init values
     logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
@@ -199,15 +200,15 @@ def dfa_constrained_beam_search(
     beam_scores[:, 1:] = -1e9
     beam_scores = beam_scores.view((batch_size * num_beams,))
     
-    # @dfa: Init an array of current_states for running the dfa efficiently per beam
+    # @dfa: Init an array of iterators (holding current_states) for running the dfa efficiently per beam
     if dfa:
-        current_states = np.array([dfa.s0]*batch_beam_size, dtype='object') # shape (batch_size*num_beams,)
+        current_state_iterators = [dfa.iterator() for i in range(batch_beam_size)] # length batch_size*num_beams
     # dfa_constructor provided - instanciate list of dfas
     elif dfa_factory:
         dfas = [[dfa_factory(input_seq)] * num_beams 
                 for input_seq in encoder_input_ids] 
-        dfas = np.array(list(itertools.chain(*dfas)), dtype='object') # length batch_beam_size
-        current_states = np.array([dfa.s0 for dfa in dfas], dtype='object')
+        dfas = list(itertools.chain(*dfas)) # length batch_beam_size
+        current_state_iterators = [dfa.iterator() for dfa in dfas]
           
     this_peer_finished = False  # used by synced_gpus only
     while True:
@@ -246,9 +247,8 @@ def dfa_constrained_beam_search(
         # @dfa: in every iteration we are directly constraining next tokens to dfa transitions
         if is_dfa:
             mask = torch.ones_like(next_token_scores) # (batch_beam_size, vocab_size); 1 will denote forbidden tokens
-            for i in range(len(current_states)):
-                dfa_ = dfa or dfas[i]
-                allowed_word_ids = list(dfa_[current_states[i]].keys())
+            for i, current_state_iterator in enumerate(current_state_iterators):
+                allowed_word_ids = list(current_state_iterator.get_allowed_transitions().keys())
                 if DFA.WILDCARD in allowed_word_ids: 
                 # allow all words
                     mask[i] = 0
@@ -302,17 +302,15 @@ def dfa_constrained_beam_search(
         beam_next_tokens = beam_outputs["next_beam_tokens"]
         beam_idx = beam_outputs["next_beam_indices"]
 
-        # @dfa: update automaton states
+        # @dfa: update automatons state
         if is_dfa:
-            current_states = current_states[beam_idx.cpu()]  # take the previous states of the selected beams 
-            if dfa_factory:
-                # also update `dfas` to be aligned with selected beams 
-                dfas = dfas[beam_idx.cpu()]  # take the previous dfas of the selected beams 
-            for i, state in enumerate(current_states):
-                dfa_ = dfa or dfas[i]
-                success, new_state = dfa_.step(state, beam_next_tokens[i].item()) 
-                current_states[i] = new_state
-            
+            # TODO here is the bug - recurring index copy the same iter object
+            # copy object when indexed (to avoid references to same iter object) 
+            current_state_iterators = [copy(current_state_iterators[idx]) 
+                                       for idx in beam_idx.cpu()]  # take the previous states of the selected beams 
+            for i, dfa_iter in enumerate(current_state_iterators):
+                # step is applied internally in iterators
+                success, new_state = dfa_iter.step(beam_next_tokens[i].item())             
                 
         input_ids = torch.cat([input_ids[beam_idx, :], beam_next_tokens.unsqueeze(-1)], dim=-1)
 
@@ -415,9 +413,11 @@ def test_dfa_constrained_beam_search():
                             num_beams=num_beams,
                             num_return_sequences=num_return_beams,
                             logits_processor=logits_processors,
-                            early_stoping=True,
                             ) 
     for index, output_tokenized in enumerate(generated):
         output = tokenizer.decode(output_tokenized)
         print(f'beam {index}: {output}')
-  
+ 
+ 
+if __name__ == "__main__":
+    test_dfa_constrained_beam_search() 

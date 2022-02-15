@@ -15,6 +15,57 @@ def find_available_prefix(existing_names: Iterable[State]) -> str:
     raise ValueError("available prefix not found")
 
 
+class DFAIterator():
+    """
+    A "running automaton" object - keeps current state along with wrapping the DFA.
+    
+    To attain an unbound-memory automaton (computationally equivelant to a Turing machine), that can for example count repetitions etc.,
+     one can extend this class with custom behaviour.
+    """
+    def __init__(self, dfa: 'DFA') -> None:
+        self.dfa = dfa
+        self.current_state = self.dfa.s0
+    
+    def __call__(self, input: Iterable[Alphabet]) -> Tuple[bool, State, bool]:
+        """
+        Try to run the automaton on a string. 
+        Returns: (success, end_state, is_accpeting), where `success` is False iff 
+        the automaton cannot execute the string.  
+        """
+        success, next_state = True, self.current_state
+        for input_symbol in input:
+            success, next_state = self.step(input_symbol)
+            if not success:
+                return success, next_state, False 
+        
+        is_accpeting = next_state in self.dfa.accept_states
+        return success, next_state, is_accpeting 
+             
+    def get_allowed_transitions(self):
+        return self.dfa[self.current_state]
+    
+    def step(self, input_symbol: Alphabet) -> Tuple[bool, State]:
+        """
+        Move one step on the automaton. 
+        Assume automaton is in `self.current_state`, and try to execute `input_symbol`.
+        Returns: (success, end_state), where `success` is False iff input_symbol is invalid.
+        the automaton cannot execute the string. 
+        """
+        possible_transitions = self.get_allowed_transitions()
+        if input_symbol not in possible_transitions and DFA.WILDCARD not in possible_transitions:
+            # Log? return the state where the automaton failed
+            return False, self.current_state
+        if input_symbol in possible_transitions:
+            next_state = possible_transitions[input_symbol]
+        else: # DFA.WILDCARD in possible_transitions
+            next_state = possible_transitions[DFA.WILDCARD]  
+        
+        self.current_state = next_state
+        return True, next_state    
+
+    def __repr__(self):
+        return f"@state: {repr(self.current_state)}"
+ 
 class DFA(UserDict):
     """
     Deterministic Finite Automaton.
@@ -40,6 +91,8 @@ class DFA(UserDict):
         if accept_states is None:
             accept_states = self.states
         self.accept_states = set(accept_states)
+        # iterator factory - so that it would be easy to replace the default `DFAIterator` class with a subclass having unbound custom behavior
+        self._iterator_factory = DFAIterator 
         # the `tokenizer` attribute would only be assigned for DFAs initialized by `DFA.adjust_for_tokenizer`
         self.tokenizer = None
     
@@ -51,36 +104,19 @@ class DFA(UserDict):
             self[src_state][symbol] = dest_state
         else:
             self[src_state] = {symbol: dest_state}
-
-    # def add_transition_no_override(self, src_state, symbol, dest_state):
-    #     if symbol not in self[src_state]:
-    #         self[src_state][symbol] = dest_state
-    #     else:
-    #         if dest_state == self[src_state][symbol]:   # no collision
-    #             return
-    #         # handle collision by adding a merged state, which its out-transitions are a union of the `dest_states`s' transitions
-    #         orig_dest_state = self[src_state][symbol]
-    #         orig_dest_transitions = self[orig_dest_state]
-    #         dest_transitions = self[dest_state]
-    #         if orig_dest_transitions == dest_transitions: # this means the two destination states are equivalent
-    #             self[src_state][symbol] = orig_dest_state
-    #         else:   
-    #             # define a new artificial destination state which unifies all transitions
-    #             unified_dest_state = f"{{ {orig_dest_state}|{dest_state} }}"
-    #             self.states.add(unified_dest_state)
-    #             self[src_state][symbol] = unified_dest_state
-    #             # unify destinations' transitions 
-    #             self[unified_dest_state].update(dict(orig_dest_transitions))
-    #             # to avoid new collisions, recurse
-    #             for symb, state in dest_transitions.items():
-    #                 self.add_transition_no_override(unified_dest_state, symb, state) 
                     
     def __getitem__(self, key: State) -> Dict[Alphabet, State]:
         # generate new dict for every new key
         if key not in self.data:
             self.data[key] = dict()
         return self.data.get(key)
-            
+    
+    def set_iterator_factory(self, iterator_factory):
+        assert isinstance(iterator_factory(self), DFAIterator), "new iterator class must be a subclass of `DFAIterator`"
+        self._iterator_factory = iterator_factory
+    
+    def iterator(self) -> 'DFAIterator':
+        return self._iterator_factory(self)        
             
     def __call__(self, input: Iterable[Alphabet]) -> Tuple[bool, State, bool]:
         """
@@ -88,47 +124,19 @@ class DFA(UserDict):
         Returns: (success, end_state, is_accpeting), where `success` is False iff 
         the automaton cannot execute the string.  
         """
-        success, end_state = self.execute_string(self.s0, input)
-        is_accpeting = end_state in self.accept_states
-        return success, end_state, is_accpeting and success
-         
-    def execute_string(self, current_state: State, input: Iterable[Alphabet]) -> Tuple[bool, State]:
-        """
-        A Recursive function which runs the automaton from a specific state on a string.
-        Returns: (success, end_state), where `success` is False iff 
-        the automaton cannot execute the string.
-        """
-        if current_state not in self.states:
-            raise ValueError(f"{current_state} is not a state in this automaton")   
-        
-        # exhausted the input - finish execution
-        if len(input) == 0:
-            return True, current_state
-        
-        next_input_symbol, rest_input = input[0], input[1:]
-        success, next_state = self.step(current_state, next_input_symbol)
-        
-        if not success:
-            return success, current_state    
-        return self.execute_string(next_state, rest_input) 
-    
+        dfa_iterator = self.iterator()
+        return dfa_iterator(input)
+             
     def step(self, current_state: State, input_symbol: Alphabet) ->  Tuple[bool, State]:
         """
-        Run one step on the automaton. 
+        Compute one step on the automaton. 
         Assume automaton is in `current_state`, and try to execute `input_symbol`.
         Returns: (success, end_state), where `success` is False iff 
         the automaton cannot execute the string. 
         """
-        possible_transitions = self[current_state]
-        if input_symbol not in possible_transitions and DFA.WILDCARD not in possible_transitions:
-            # Log? return the state where the automaton failed
-            return False, current_state
-        
-        if input_symbol in possible_transitions:
-            next_state = possible_transitions[input_symbol]
-        else: # DFA.WILDCARD in possible_transitions
-            next_state = possible_transitions[DFA.WILDCARD]
-        return True, next_state
+        dfa_iterator = self.iterator()
+        dfa_iterator.current_state = current_state
+        return dfa_iterator.step(input_symbol)
     
     def adjust_for_tokenizer(self, tokenizer, inplace=False, convert_to_word_ids=False) -> 'DFA':
         """ 

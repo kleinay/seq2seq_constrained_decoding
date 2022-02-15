@@ -84,7 +84,8 @@ class DfaDecodingLogitsProcessor(LogitsProcessor):
             # Edit batch_banned_token_ids according to beam_input_ids 
             # 1. run DFA on output-so-far
             b_input_tokens = self.tokenizer.convert_ids_to_tokens(beam_input_ids, skip_special_tokens=True)
-            success, current_state, in_accept_state = self.dfa(b_input_tokens)
+            current_state_iterator = self.dfa.iterator()
+            success, end_state, in_accept_state = current_state_iterator(b_input_tokens)
             # success should usually be true, because we are banning invalid tokens in previous steps
             # but for cases like going through the white space tokens, we block this thread post hoc
             if not success:
@@ -92,7 +93,7 @@ class DfaDecodingLogitsProcessor(LogitsProcessor):
                 allowed_next_words = set() # ban all vocab
             # 2. Determine allowed next-tokens
             else:
-                allowed_next_words = set(self.dfa[current_state].keys())
+                allowed_next_words = set(current_state_iterator.get_allowed_transitions().keys())
                 # add special "empty" / white-space tokens
                 allowed_next_words.update({'▁', ' '})
                 # eos token is explictly allowed if this is an accepting state or if we shouldn't enforce accpetance
