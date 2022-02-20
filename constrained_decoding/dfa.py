@@ -63,6 +63,18 @@ class DFAIterator():
         self.current_state = next_state
         return True, next_state    
 
+    def copy(self, copy_dfa=False):
+        """ 
+        Returns a copy of the iterator; with the option of (not) copying the DFA.
+        Override when extending `DFAIterator` to keep additional internal knowledge. 
+        """
+        if copy_dfa:
+            _copy = DFAIterator(self.copy())
+        else:
+            _copy = DFAIterator(self.dfa)
+        _copy.current_state = self.current_state
+        return _copy
+
     def __repr__(self):
         return f"@state: {repr(self.current_state)}"
  
