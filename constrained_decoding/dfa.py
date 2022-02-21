@@ -150,17 +150,18 @@ class DFA(UserDict):
         dfa_iterator.current_state = current_state
         return dfa_iterator.step(input_symbol)
     
-    def adjust_for_tokenizer(self, tokenizer, inplace=False, convert_to_word_ids=False) -> 'DFA':
+    def adjust_for_tokenizer(self, tokenizer, inplace=False, convert_to_word_ids=False, set_eos_loop=True) -> 'DFA':
         """ 
         Adjust the DFA alphabet to fit tokenizer vocabulary. 
         
         :param convert_to_word_ids (bool, default `False`): is `True`, converts the automaton's alphabet to word_ids (integers). 
+        :
         
         Implementation:
         1. Replace automaton's alphabet with corresponding vocabulary entries. 
         2. If automaton's transitions' alphabet include out-of-vocabulry symbols, replace symbols with tokenizer.unk_token within the automaton's transitions.     
         3. If automaton's transitions' alphabet include multi-token symbols, fix by adding "bridge states" between the word's subtokens.
-        4. For all accepting states, add transition to a "end-of-sequence" state which will allow for the eos_token;
+        4. (if `set_eos_loop`:) For all accepting states, add transition to a "end-of-sequence" state which will allow for the eos_token;
             From there, only allow a self-referring transition with a "pad" token (padding the rest of the output).
         """
         dfa = self if inplace else self.copy() 
@@ -231,12 +232,13 @@ class DFA(UserDict):
             
         # 4. For all accepting states, add transition to a "end-of-sequence" state which will allow for the eos_token;
         #    From there, have a self-referring "pad" transition (padding the rest of the output).
-        eos_state = "<end-of-sequence-state>"
-        dfa.states.add(eos_state)
-        for accpet_state in dfa.accept_states:
-            add_token_transition(accpet_state, tokenizer.eos_token, eos_state) # can only get to eos_state after reading eos_token
-        add_token_transition(eos_state, tokenizer.pad_token, eos_state) # cycle to pad the rest of the sequence  
-        dfa.accept_states.add(eos_state)
+        if set_eos_loop:
+            eos_state = "<end-of-sequence-state>"
+            dfa.states.add(eos_state)
+            for accpet_state in dfa.accept_states:
+                add_token_transition(accpet_state, tokenizer.eos_token, eos_state) # can only get to eos_state after reading eos_token
+            add_token_transition(eos_state, tokenizer.pad_token, eos_state) # cycle to pad the rest of the sequence  
+            dfa.accept_states.add(eos_state)
         
         # now handle collisions
         collisions = [(src, symb, dests) 
@@ -263,6 +265,20 @@ class DFA(UserDict):
         # keep tokenizer on dfa instance 
         dfa.tokenizer = tokenizer
         return dfa
+    
+    def as_word_level(self, inplace=False) -> 'DFA':
+        """ Adjust the DFA alphabet to fit single words (space delimited). """
+        # define a SpaceTokenizer mimic object for `adjust_for_tokenizer`
+        class SpaceTokenizer():
+            def __init__(self) -> None:
+                self.unk_token = "NONE"
+            def tokenize(self, symbol):
+                return symbol.split(" ")
+        space_tokenizer = SpaceTokenizer()
+        ret_dfa = self.adjust_for_tokenizer(space_tokenizer, inplace=inplace, convert_to_word_ids=False, set_eos_loop=False)
+        # unset `dfa.tokenizer` to avoid logical errors (as it is not a "real" tokenizer)
+        ret_dfa.tokenizer = None
+        return ret_dfa
     
     def as_cyclic(self, end_states: Optional[Iterable[State]] = None, bridge: Optional[Alphabet] = None) -> 'DFA':
         """
