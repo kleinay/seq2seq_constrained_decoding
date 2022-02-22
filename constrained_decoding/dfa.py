@@ -116,6 +116,7 @@ class DFA(UserDict):
             self[src_state][symbol] = dest_state
         else:
             self[src_state] = {symbol: dest_state}
+        self.states.update([src_state, dest_state])
                     
     def __getitem__(self, key: State) -> Dict[Alphabet, State]:
         # generate new dict for every new key
@@ -335,6 +336,46 @@ class DFA(UserDict):
                         for possible_token in possible_tokens} 
                     for i, possible_tokens in enumerate(slots)}
         return DFA(dfa_as_dict, 0, accept_states={len(slots)})
+    
+    @staticmethod
+    def get_partial_dfa(intermediate_dfa: 'DFA', 
+                        activating_symbols: Iterable[Alphabet],  
+                        deactivating_symbols: Iterable[Alphabet] = [],
+                        cyclic: bool = False,
+                        deactivate_after_accept: bool = False) -> 'DFA':
+        """
+        Define a DFA that is "idle" until reading an "activating" symbol (from `activating_symbols`); 
+          during these "idle" states all alphabet is permitted (self-loop with wildcard). 
+        After "activation", the DFA is constraining according to the given `intermediate_dfa` logic; 
+          and reading any symbol from one of the `intermediate_dfa.accept_states` (if `deactivate_after_accept`) 
+          or reading a deactivating symbol (any of `deactivating_symbols`) are transmitting again to an idle state. 
+        `cyclic` determines whether after "deactivation", the automaton returns to the initial idle state and thus 
+          can be reactivated (True), or else it proceeds to be infinitely idle (False).
+        All "idle" states are accepting.
+        """
+        initial_idle_state = "s0-idle"
+        final_idle_state = initial_idle_state if cyclic else "end-state-idle" 
+        dfa = intermediate_dfa.copy()
+        orig_s0 = dfa.s0
+        # pre-active
+        dfa.s0 = initial_idle_state
+        dfa.add_transition(initial_idle_state, DFA.WILDCARD, initial_idle_state)
+        for activating_symbol in activating_symbols:
+            dfa.add_transition(initial_idle_state, activating_symbol, orig_s0)
+        dfa.s0 = initial_idle_state
+        # post active
+        dfa.accept_states = set([initial_idle_state, final_idle_state])
+        for intermediate_dfa_state in intermediate_dfa.states:
+            for deactivating_symbol in deactivating_symbols:
+                dfa.add_transition(intermediate_dfa_state, deactivating_symbol, final_idle_state)
+        if deactivate_after_accept:
+            for orig_accept_state in intermediate_dfa.accept_states:
+                dfa.add_transition(orig_accept_state, DFA.WILDCARD, final_idle_state)  
+            # original accept_states are also accept states now because they represent an "idle" state
+            dfa.accept_states.update(intermediate_dfa.accept_states)  
+        dfa.add_transition(final_idle_state, DFA.WILDCARD, final_idle_state)
+        return dfa
+        
     
     @staticmethod
     def concat_two(dfa1: 'DFA', dfa2: 'DFA', 

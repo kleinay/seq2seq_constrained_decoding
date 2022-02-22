@@ -49,7 +49,7 @@ print(tokenizer.batch_decode(out))
 
 ## Set decoding 
 
-In some scenarios, you would like to regard the output sequence as expressing a set of elements comprised of sub-sequence. For example, you might finetune your Seq2Seq model on a multi-label document classification task (e.g. generating the set of relation types occuring in the input document). 
+In some scenarios, you would like to regard the output sequence as expressing a set of elements comprised of sub-sequences. For example, you might finetune your Seq2Seq model on a multi-label document classification task (e.g. generating the set of relation types occuring in the input document). 
 
 The `set_decoding.SetDecodingLogitProcessor` class can gurantee that no subsequence (e.g. a relation type) would occur more than once. Output subsequences are assumed to be defined using a special separator token.
 

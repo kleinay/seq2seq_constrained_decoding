@@ -304,7 +304,6 @@ def dfa_constrained_beam_search(
 
         # @dfa: update automatons state
         if is_dfa:
-            # TODO here is the bug - recurring index copy the same iter object
             # copy object when indexed (to avoid references to same iter object) 
             current_state_iterators = [copy(current_state_iterators[idx]) 
                                        for idx in beam_idx.cpu()]  # take the previous states of the selected beams 
