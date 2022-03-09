@@ -60,7 +60,7 @@ def dfa_constrained_generate(
     This is necessary only when using a `dfa_factory` to condition the constraining DFA on the input sequence (e.g. copying from the input).
     
     The original method is copied from transformers.generation_utils.GenerationMixins.generate(...).
-        Github Ref: https://github.com/huggingface/transformers/blob/05fa1a7ac17bb7aa07b9e0c1e138ecb31a28bbfe/src/transformers/generation_utils.py#L742
+        Github Ref: https://github.com/huggingface/transformers/blob/v4.14.1/src/transformers/generation_utils.py#L649
     -----------
     Generates sequences for models with a language modeling head. The method currently supports greedy decoding,
     multinomial sampling, beam-search decoding, and beam-search multinomial sampling.
@@ -495,7 +495,7 @@ def dfa_constrained_generate(
             output_scores=output_scores,
             return_dict_in_generate=return_dict_in_generate,
             synced_gpus=synced_gpus,
-            encoder_input_ids=encoder_input_ids, # @dfa additional argument
+            encoder_input_ids=encoder_input_ids,
             **model_kwargs,
         )
 
