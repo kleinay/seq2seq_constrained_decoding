@@ -194,9 +194,8 @@ class DFA(UserDict):
                         assert tokenizer.unk_token not in dfa[src_state],   f"""transition from {src_state} to {dfa[src_state][tokenizer.unk_token]} is overriden,  
                                 as more than one symbol from {invariant[src_state].keys()} is out-of-vocabulary and should be replaced with {tokenizer.unk_token}."""
                     # 1. Replace alphabet with vocab entry
-                    if new_symbol != symbol or convert_to_word_ids:
-                        dfa[src_state].pop(symbol)
-                        add_token_transition(src_state, new_symbol, tgt_state)
+                    dfa[src_state].pop(symbol)
+                    add_token_transition(src_state, new_symbol, tgt_state)
                     
                 # 3. handle multitoken symbols
                 else:
