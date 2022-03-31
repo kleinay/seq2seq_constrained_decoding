@@ -41,7 +41,8 @@ class DFAIterator():
         is_accpeting = next_state in self.dfa.accept_states
         return success, next_state, is_accpeting 
              
-    def get_allowed_transitions(self):
+    def get_allowed_transitions(self) -> Dict[Alphabet, State]:
+        " Override this method to achieve custom behavior. "
         return self.dfa[self.current_state]
     
     def step(self, input_symbol: Alphabet) -> Tuple[bool, State]:
@@ -330,6 +331,12 @@ class DFA(UserDict):
             self.accept_states.add(new_name)         
     
     @staticmethod
+    def permissive() -> 'DFA':
+        " Returns a very basic DFA with a single (accepting) state that allows all symbols. "
+        state = "<permissive>"
+        return DFA({state: {DFA.WILDCARD: state}}, state, accept_states={state})
+    
+    @staticmethod
     def from_slots(slots: List[List[Alphabet]] ) -> 'DFA':
         dfa_as_dict = {i: {possible_token : i+1
                         for possible_token in possible_tokens} 
@@ -346,8 +353,8 @@ class DFA(UserDict):
         Define a DFA that is "idle" until reading an "activating" symbol (from `activating_symbols`); 
           during these "idle" states all alphabet is permitted (self-loop with wildcard). 
         After "activation", the DFA is constraining according to the given `intermediate_dfa` logic; 
-          and reading any symbol from one of the `intermediate_dfa.accept_states` (if `deactivate_after_accept`) 
-          or reading a deactivating symbol (any of `deactivating_symbols`) are transmitting again to an idle state. 
+          and reading any symbol of the `deactivating_symbols`, or entering one of the `intermediate_dfa.accept_states` 
+          (if `deactivate_after_accept`), will transmit again to the idle status. 
         `cyclic` determines whether after "deactivation", the automaton returns to the initial idle state and thus 
           can be reactivated (True), or else it proceeds to be infinitely idle (False).
         All "idle" states are accepting.

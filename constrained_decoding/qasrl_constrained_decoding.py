@@ -1,4 +1,4 @@
-from typing import List, Iterable, Tuple, Any, Union, Dict, Optional, Callable
+from typing import List, Iterable, Tuple, Any, Union, Dict, Optional, Callable, overload
 import itertools
 from collections import defaultdict
 import json
@@ -10,7 +10,7 @@ import transformers
 from transformers import AutoTokenizer, LogitsProcessorList
 
 # from .set_decoding import SetDecodingLogitsProcessor
-from .dfa import DFA
+from .dfa import DFA, DFAIterator, State, Alphabet
 from .dfa_decoding import set_decoding_to_dfa_constrained
 
 
@@ -21,6 +21,9 @@ separator_q_a = "<Q_A>"
 separator_answers = "<A_A>"
 
 repo_root_path = Path(__file__).absolute().parent.parent
+
+STOP_WORDS = """we you he she they is are was were will it the a an and or , in on at of ' " no my has have"""
+
 
 def is_prefixed_by(list, sublist) -> bool:
     return list[:len(sublist)] == sublist
@@ -127,6 +130,111 @@ def get_qasrl_full_sequence_dfa(input_sentence: str, tokenizer, special_tokens_c
                                                                          convert_to_word_ids=convert_to_word_ids)
     return qasrl_qas_sequence_dfa
 
+def removeKeys(orig_dict: Dict[Any, Any], keys: List[Any], inplace=True) -> Dict[Any, Any]:
+    """ remove these keys from the orig_dict. """
+    if not inplace:
+        orig_dict = orig_dict.copy()
+    for key in keys:
+        orig_dict.pop(key, None)
+    return orig_dict 
+
+class NoRepetitionDFAIterator(DFAIterator):
+    def __init__(self, dfa: 'DFA', 
+                 activate_symbols: Optional[Iterable[Alphabet]] = None,
+                 deactivate_symbols: Optional[Iterable[Alphabet]] = None,
+                 reinit_symbols: Iterable[Alphabet] = [],
+                 allow_symbols: Iterable[Alphabet] = [], 
+                 reinit_on_deactivation: bool = True,
+                 convert_to_word_ids: bool = False,
+                 tokenizer = None,
+                 ) -> None:
+        """ 
+        `activate_symbols` - if provided, the "no-repeatition" strategy is enabled only after reading one the symbols in `activate`
+        `deactivate_symbols` are symbols that when reading them, the iterator disables the "no-repeatition" strategy,
+          and also (depending on `reinit_on_deactivation`) "re-initializes `self.seen_symbols` to be empty. 
+        `allow_symbols` are symbols that are allowed to be repeated.
+        `reinit_symbols` are symbols that when reading them, the iterator re-initializes `self.seen_symbols` to be empty. 
+        """
+        super().__init__(dfa)
+        assert not convert_to_word_ids or tokenizer, "Must provide a tokenizer when `convert_to_token_ids` is True."
+        self.seen_symbols = set()
+        self.allowed_symbols = set(allow_symbols)
+        self.reinit_symbols = set(reinit_symbols)
+        self.activate_symbols = set(activate_symbols)
+        self.deactivate_symbols = set(deactivate_symbols)
+        self.reinit_on_deactivation = reinit_on_deactivation
+        self.tokenizer = tokenizer
+        # encode symbols by tokenizer to token_ids
+        if convert_to_word_ids:
+            self.allowed_symbols = set(tokenizer.convert_tokens_to_ids(self.allowed_symbols))
+            self.reinit_symbols = set(tokenizer.convert_tokens_to_ids(self.reinit_symbols))
+            self.activate_symbols = set(tokenizer.convert_tokens_to_ids(self.activate_symbols))
+            self.deactivate_symbols = set(tokenizer.convert_tokens_to_ids(self.deactivate_symbols))
+        # state of activation
+        self.active = activate_symbols is None 
+    
+    def step(self, input_symbol: Alphabet) -> Tuple[bool, State]:
+        success, end_state = super().step(input_symbol)
+        # register input symbol
+        if success and self.active:
+            self.seen_symbols.add(input_symbol)
+        # re-initialize memory
+        if input_symbol in self.reinit_symbols:
+            self.seen_symbols = set()
+        # activate
+        if input_symbol in self.activate_symbols:
+            self.active = True
+        # deactivate
+        if input_symbol in self.deactivate_symbols:
+            self.active = False
+            if self.reinit_on_deactivation:
+                self.seen_symbols = set()
+            
+        return success, end_state
+    
+    def get_allowed_transitions(self) -> Dict[Alphabet, State]:
+        # Notice that the iterator cannot block the wildcard transition! it can only remove explicit transition symbols
+        allowed_transitions = super().get_allowed_transitions()
+        if self.active:
+            forbidden_repeated_symbols = self.seen_symbols - self.allowed_symbols  
+            allowed_transitions = removeKeys(allowed_transitions, forbidden_repeated_symbols, inplace=False)
+        return allowed_transitions
+        
+
+def set_as_redundance_answer_disposer_dfa(base_dfa, special_tokens_constants, 
+                                          tokenizer = None,
+                                          convert_to_word_ids = False) -> DFA:
+    """
+    A partial DFA that is activated given Q_A_SEP and deactivated given QA_PAIR_SEP.
+    During its active phase, while it iterate over the subsequence corresponding to the answers,
+    it can remember generated ids (except from ANS_SEP - extra_id_3) and forbid them.
+    The Goal is to prevent from answering the same question with multiple overlapping answers.
+    """
+    repetitions_allowed = [special_tokens_constants.separator_output_answers] 
+    if tokenizer:
+        repetitions_allowed += tokenizer.tokenize(STOP_WORDS)
+    else:
+        repetitions_allowed += STOP_WORDS.split()
+        
+    reinit_symbols = [special_tokens_constants.separator_output_pairs]
+    
+    no_repeat_iter_factory = lambda d: NoRepetitionDFAIterator(d,
+                                                               activate_symbols=[special_tokens_constants.separator_output_question_answer],
+                                                               deactivate_symbols=[special_tokens_constants.separator_output_pairs],
+                                                               reinit_symbols=reinit_symbols,
+                                                               allow_symbols=repetitions_allowed, 
+                                                               reinit_on_deactivation=True,
+                                                               tokenizer=tokenizer,
+                                                               convert_to_word_ids=convert_to_word_ids
+                                                               )
+    base_dfa.set_iterator_factory(no_repeat_iter_factory)
+    # construct a partial DFA that activates `no_repeat_dfa` when generating QASRL "answers"
+    # no_repeat_dfa = DFA.get_partial_dfa(no_repeat_dfa, 
+    #                                   activating_symbols=[special_tokens_constants.separator_output_question_answer],
+    #                                   deactivating_symbols=[special_tokens_constants.separator_output_pairs],
+    #                                   cyclic=True)
+    return base_dfa
+
 
 def test_qasrl_question_dfa():
     from .pipeline import QASRL_Pipeline
@@ -160,8 +268,35 @@ def test_full_qasrl_dfa():
     assert apply("how _ _ umbrella _ _ do something ?")[2]
     assert apply("how _ _ verb someone _ something ?")[2]
 
+def test_redundance_answer_disposer():
+    convert_to_word_ids = True
+    from .pipeline import QASRL_Pipeline
+    pipe = QASRL_Pipeline("kleinay/qanom-seq2seq-model-joint")
+    tokenizer = pipe.tokenizer
+    sentence = "The doctor was interested in Luke 's treatment yesterday given by the other doctor ."
+    dfa = get_qasrl_full_sequence_dfa(sentence, tokenizer, pipe.special_tokens, convert_to_word_ids=convert_to_word_ids)
+    dfa_orig = dfa.copy()
+    set_as_redundance_answer_disposer_dfa(dfa, pipe.special_tokens, tokenizer=tokenizer, convert_to_word_ids=convert_to_word_ids)
+    def apply(seq):
+        if convert_to_word_ids:
+            return dfa(tokenizer.encode(seq)[:-1]) 
+        else:
+            return dfa(tokenizer.tokenize(seq)) 
+    question = "how _ _ verb someone _ something ?"   
+    assert apply(f"{question}<extra_id_7> by the other doctor<extra_id_3> was interested")[2]
+    assert apply(f"{question}<extra_id_7> by the other doctor<extra_id_3> other") == (False, '<2>_0', False)
+    assert apply(f"{question}<extra_id_7> by the other doctor<extra_id_3> the")[2]  # repeating a stop-word is OK
+    assert apply(f"{question}<extra_id_7> by the other doctor<extra_id_9> {question}")[0] 
+    assert apply(f"{question}<extra_id_7> by the other doctor<extra_id_9> {question}<extra_id_7> by the")[2] 
+    assert apply(f"{question}<extra_id_7> by the other doctor<extra_id_3> was<extra_id_3> interested")[2]
+    assert apply(f"{question}<extra_id_7> by the other<extra_id_9> {question}<extra_id_7> doctor<extra_id_3> doctor")[0] == False
+    
+    print("test_redundance_answer_disposer() passed successfully")
+
+
 
 if __name__ == "__main__":
+    test_redundance_answer_disposer()
     # test_get_qasrl_question_dfa()
     # test_full_qasrl_dfa()
     # test on real model
