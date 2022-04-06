@@ -205,30 +205,29 @@ class DFA(UserDict):
                     
                     # instead, add unique transition between sub-tokens using new "bridge" states
                     
-                    # Try Backward
-                    # iter_state = tgt_state 
-                    # for i in range(len(tok_symbol)-1,0,-1):
-                    #     subtok1, subtok2 = tok_symbol[i-1], tok_symbol[i]
+                    # Run Backward
+                    iter_state = tgt_state 
+                    for i in range(len(tok_symbol)-1,0,-1):
+                        subtok1, subtok2 = tok_symbol[i-1], tok_symbol[i]
+                        intermediate_state = f"{src_state}:{subtok1}~>{subtok2}"
+                        dfa.states.add(intermediate_state)
+                        add_token_transition(intermediate_state, subtok2, iter_state)
+                        # iteration step - move iter_state backward
+                        iter_state = intermediate_state 
+                    # and then transit to first subtoken from original source state.
+                    add_token_transition(src_state, subtok1, iter_state)
+                    
+                    # iter_state = src_state 
+                    # for i in range(len(tok_symbol)-1):
+                    #     subtok1, subtok2 = tok_symbol[i], tok_symbol[i+1]
                     #     intermediate_state = f"{src_state}:{subtok1}~>{subtok2}"
                     #     dfa.states.add(intermediate_state)
-                    #     add_token_transition(intermediate_state, subtok2, iter_state)
-                    #     # iteration step - move iter_state backward
+                    #     add_token_transition(iter_state, subtok1, intermediate_state)
+                    #     # iteration step - move iter_state forward
                     #     iter_state = intermediate_state 
                     # # and then transit from last subtoken to original destination state.
                     # # (notice that in end of iteration, subtok2 == tok_symbol[-1])
-                    # add_token_transition(src_state, subtok1, iter_state)
-                    
-                    iter_state = src_state 
-                    for i in range(len(tok_symbol)-1):
-                        subtok1, subtok2 = tok_symbol[i], tok_symbol[i+1]
-                        intermediate_state = f"{src_state}:{subtok1}~>{subtok2}"
-                        dfa.states.add(intermediate_state)
-                        add_token_transition(iter_state, subtok1, intermediate_state)
-                        # iteration step - move iter_state forward
-                        iter_state = intermediate_state 
-                    # and then transit from last subtoken to original destination state.
-                    # (notice that in end of iteration, subtok2 == tok_symbol[-1])
-                    add_token_transition(iter_state, tok_symbol[-1], tgt_state)
+                    # add_token_transition(iter_state, tok_symbol[-1], tgt_state)
 
             
         # 4. For all accepting states, add transition to a "end-of-sequence" state which will allow for the eos_token;
@@ -271,9 +270,9 @@ class DFA(UserDict):
         """ Adjust the DFA alphabet to fit single words (space delimited). """
         # define a SpaceTokenizer mimic object for `adjust_for_tokenizer`
         class SpaceTokenizer():
-            def __init__(self) -> None:
-                self.unk_token = "NONE"
-            def tokenize(self, symbol):
+            def __init__(self):
+                self.unk_token = None
+            def tokenize(self, symbol: str) -> List[str]:
                 return symbol.split(" ")
         space_tokenizer = SpaceTokenizer()
         ret_dfa = self.adjust_for_tokenizer(space_tokenizer, inplace=inplace, convert_to_word_ids=False, set_eos_loop=False)
