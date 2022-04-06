@@ -152,8 +152,6 @@ def dfa_constrained_beam_search(
     multiple_dfas = vars(dfa_constrained_beam_search).get("multiple_dfas", [])
     multiple_dfa_factories = vars(dfa_constrained_beam_search).get("multiple_dfa_factories", [])
     is_dfa = dfa or dfa_factory or multiple_dfas or multiple_dfa_factories
-    if is_dfa:
-        from copy import copy
     
     # init values
     logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
@@ -416,7 +414,7 @@ def test_dfa_constrained_beam_search():
     
     # replace beam search method with our custom function as a bound method
     from .dfa_decoding import set_decoding_to_dfa_constrained
-    set_decoding_to_dfa_constrained(model, dfas=[dfa, dfa2])
+    set_decoding_to_dfa_constrained(model, dfas=[dfa])
     
     # play with additional Losits Processors
     logits_processors = LogitsProcessorList([
@@ -432,8 +430,11 @@ def test_dfa_constrained_beam_search():
                             num_beams=num_beams,
                             num_return_sequences=num_return_beams,
                             # logits_processor=logits_processors,
+                            return_dict_in_generate=True,
+                            output_scores=True,
                             ) 
-    for index, output_tokenized in enumerate(generated):
+    
+    for index, output_tokenized in enumerate(generated["sequences"]):
         output = tokenizer.decode(output_tokenized)
         print(f'beam {index}: {output}')
  

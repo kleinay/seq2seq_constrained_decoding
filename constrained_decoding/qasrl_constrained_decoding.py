@@ -20,6 +20,8 @@ separator_qa_pairs = "<QA_QA>"
 separator_q_a = "<Q_A>"
 separator_answers = "<A_A>"
 
+new_word_ch = '▁'   # for T5 tokenizer
+
 repo_root_path = Path(__file__).absolute().parent.parent
 
 STOP_WORDS = """we you he she they is are was were will it the a an and or , in on at of ' " no my has have"""
@@ -30,7 +32,7 @@ def is_prefixed_by(list, sublist) -> bool:
 
 def get_copy_dfa(tok_source_seq: List[str], terminate_token: Optional[str] = None) -> DFA:
     """ 
-    Get a DFA which a possible 'copying' process of the decoder from the `source_sequence`.
+    Get a DFA which simulates a possible 'copying' process of the decoder from the `source_sequence`.
     :param tok_source_seq: the tokenized source sequence to copy from.
     :param terminate_token (optional): if provided, dfa is defined to have a transition from every state to 
       a single accepting "<TERMINATE>" state via `terminate_token` (e.g. EOS token). 
@@ -84,12 +86,19 @@ def get_copy_dfa(tok_source_seq: List[str], terminate_token: Optional[str] = Non
 def test_get_copy_dfa():
     sentence = "abcabdssabcr"
     tok_source_seq: List[str] = list(sentence) # ['a', 'b', 'c', 'a', 'b', 'd', 's', 's', 'a', 'b', 'c', 'r'] 
+    # test with terminate symbol
     dfa = get_copy_dfa(tok_source_seq, '<s>')
     subseqs = [(i,tuple(tok_source_seq[i:j])) for i in range(len(tok_source_seq)-1) for j in range(i+1, len(tok_source_seq))]
     for i,subseq in subseqs:
         assert dfa(subseq + ('<s>',)) == (True, '<TERMINATE>', True), f"substring {subseq} failed"
         assert not dfa(subseq)[2] 
     assert not dfa("aba")[0]
+    # test without terminate symbol
+    dfa = get_copy_dfa(tok_source_seq)
+    for i,subseq in subseqs:
+        assert dfa(subseq)[2], f"substring {subseq} failed"
+        assert not dfa(subseq + ('c', 'b'))[2] 
+    print("test_get_copy_dfa() passed successfully")
     
 def get_qasrl_question_dfa(constrain_verb: bool):
     qasrl_slots = json.load(open(repo_root_path / "qasrl_slots.json")) 
@@ -112,11 +121,41 @@ def get_qasrl_question_dfa(constrain_verb: bool):
     
     return dfa
 
+def get_qasrl_answer_dfa(tokenized_sentence: List[str]) -> DFA:
+    " Create a cyclic qasrl_answers_dfa out of a copy_dfa. "
+    answer_dfa = get_copy_dfa(tokenized_sentence)
+    # remove initial state (empty answer) from accept_states 
+    answer_dfa.accept_states.remove(answer_dfa.s0)
+    # start only with tokens that start new word
+    non_start_tokens = [tok for tok in tokenized_sentence if not tok.startswith(new_word_ch) or tok==new_word_ch]
+    for tok in set(non_start_tokens):
+        answer_dfa[answer_dfa.s0].pop(tok)
+    # block "half-words" - remove from dfa.accept_states all states corresponding to tokens not starting with the new-word prefix "_"  
+    half_word_states = set() 
+    non_end_tokens = []
+    # last_state = [s for s in answer_dfa.states if answer_dfa[s]=={}][0]
+    it = answer_dfa.iterator()
+    # iterate dfa linearly through the sentence
+    prev_state = it.current_state
+    for tok in tokenized_sentence:
+        success, state = it.step(tok)
+        # assert len(next_transions)==1, f"{tok} hasn't a single transion"
+        if not tok.startswith(new_word_ch):
+            half_word_states.add(prev_state)
+            non_end_tokens.append(tok)
+        prev_state = state
+        
+    answer_dfa.accept_states.difference_update(half_word_states)
+               
+    return answer_dfa     
+    
+
 def get_qasrl_full_sequence_dfa(input_sentence: str, tokenizer, special_tokens_constants, convert_to_word_ids=True) -> DFA:
     tokenized_sentence = tokenizer.tokenize(input_sentence)
-    # create a cyclic qasrl_answers_dfa out of a copy_dfa
-    answer_dfa = get_copy_dfa(tokenized_sentence)
-    answers_dfa = answer_dfa.as_cyclic(bridge=special_tokens_constants.separator_output_answers)        
+    # create a qasrl_answer_dfa based on a copy_dfa
+    answer_dfa = get_qasrl_answer_dfa(tokenized_sentence)
+    # create a cyclic qasrl_answers_dfa for multiple answers
+    answers_dfa = answer_dfa.as_cyclic(bridge=special_tokens_constants.separator_output_answers)
 
     # combine qasrl_question_dfa and qasrl_answers_dfa to form a qa_dfa       
     qasrl_question_dfa = get_qasrl_question_dfa(constrain_verb=False)
@@ -254,19 +293,65 @@ def test_qasrl_question_dfa():
     assert apply("how much _ _ try _ _ _ ?")[2]
     assert apply("how _ _ umbrella _ _ do something ?")[2]
     assert apply("how _ _ verb someone _ something ?")[2]
+    print("test_qasrl_question_dfa() passed successfully")
+
+
+def test_qasrl_answer_dfa():
+    from .pipeline import QASRL_Pipeline
+    pipe = QASRL_Pipeline("kleinay/qanom-seq2seq-model-joint")
+    tokenizer = pipe.tokenizer
+    # taking a sentence with some multi-token words
+    sentence = "The two tails are suspects of murdering many ozone 2050 customers ceasefire . "
+    tokenized_sentence = tokenizer.tokenize(sentence)
+    # answer dfa is a copy dfa 
+    sep = "<extra_id_9>"
+    dfa = get_qasrl_answer_dfa(tokenized_sentence)
+    def apply(seq):
+        return dfa(tokenizer.tokenize(seq)) 
+    assert apply("two tails")[2] 
+    assert apply("two tail")[2] == False 
+    assert apply("s of murdering")[2] == False 
+    assert apply("many ozone")[2]  
+    assert apply("many o")[2] == False  
+    assert apply("The two tails")[2]
+    assert apply("ceasefire")[2]
+    
+    
+def test_qasrl_answers_dfa():
+    from .pipeline import QASRL_Pipeline
+    pipe = QASRL_Pipeline("kleinay/qanom-seq2seq-model-joint")
+    tokenizer = pipe.tokenizer
+    # taking a sentence with some multi-token words
+    sentence = "The two tails are suspects of murdering many ozone 2050 customers ceasefire . "
+    tokenized_sentence = tokenizer.tokenize(sentence)
+    # answer dfa is a copy dfa 
+    sep = "<extra_id_9>"
+    dfa = get_qasrl_answer_dfa(tokenized_sentence)
+    dfa = dfa.as_cyclic(bridge=sep)
+    def apply(seq):
+        return dfa(tokenizer.tokenize(seq)) 
+    assert apply("two tails")[2] 
+    assert apply(f"{sep} two tails")[2] == False
+    assert apply(f"two tails {sep} suspects of murdering")[2]
+    assert apply(f"ceasefire {sep} 2050 customers")[2]
+    assert apply(f"ceasefire {sep} 2050 customers {sep}")[2] == False
 
 
 def test_full_qasrl_dfa():
     from .pipeline import QASRL_Pipeline
     pipe = QASRL_Pipeline("kleinay/qanom-seq2seq-model-joint")
     tokenizer = pipe.tokenizer
-    sentence = "The doctor was interested in Luke 's treatment yesterday given by the other doctor ."
+    sentence = "The doctor was interested in Luke's treatment yesterday given by the other doctor ."
     dfa = get_qasrl_full_sequence_dfa(sentence, tokenizer, pipe.special_tokens, convert_to_word_ids=False)
     def apply(seq):
-        return dfa(tokenizer.tokenize(seq))    
-    assert apply("how much _ _ try _ _ _ ?")[2]
-    assert apply("how _ _ umbrella _ _ do something ?")[2]
-    assert apply("how _ _ verb someone _ something ?")[2]
+        return dfa(tokenizer.tokenize(seq))  
+    q = "how _ _ verb someone _ something ?" 
+    assert apply("how much _ _ try _ _ _ ?<extra_id_7> the other doctor </s>")[2]
+    assert apply("how much _ _ try _ _ _ ?<extra_id_7> the other doctor<extra_id_3> Luke")[2]
+    assert apply("how _ _ umbrella _ _ do something ?<extra_id_7> the other<extra_id_9>") == (True, 0, False)
+    assert apply(f"{q}<extra_id_7> the other<extra_id_9>{q}<extra_id_7> the other")[2]
+    print("test_full_qasrl_dfa() passed successfully")
+
 
 def test_redundance_answer_disposer():
     convert_to_word_ids = True
@@ -296,10 +381,16 @@ def test_redundance_answer_disposer():
 
 
 if __name__ == "__main__":
-    test_redundance_answer_disposer()
+    # Unit Testing
+    
+    # test_get_copy_dfa()
+    # test_redundance_answer_disposer()
     # test_get_qasrl_question_dfa()
     # test_full_qasrl_dfa()
-    # test on real model
+    # test_qasrl_answer_dfa() # just the copying mechanism
+    test_qasrl_answer_dfa() # 
+    
+    # Full test on real model
     from .pipeline import QASRL_Pipeline
     pipe = QASRL_Pipeline("kleinay/qanom-seq2seq-model-joint")
     sentence = "The doctor was interested to know about Luke 's bio-feedback treatment given by the nurse yesterday."
@@ -336,14 +427,17 @@ if __name__ == "__main__":
     ])  
     generate_kwargs = dict(
                         #    max_length=80,
-                           min_length=80,
-                           num_beams=10,
-                           num_return_sequences=10,
-                           logits_processor=logits_processors,
+                        #    min_length=80,
+                           num_beams=5,
+                           num_return_sequences=5,
+                        #    logits_processor=logits_processors,
                         #    early_stoping=True,
                             ) 
     
     print("Constrained:")
     print(pipe(**pipe_kwargs, generate_kwargs=generate_kwargs))
     
+    # using model.generate directly
+    pipe_input = "The doctor was interested to know about Luke 's bio-feedback <predicate> treatment given by the nurse yesterday."
+    input_seq = pipe.preprocess(pipe_input, predicate_type="nominal", verb_form="treat")['input_ids']
     

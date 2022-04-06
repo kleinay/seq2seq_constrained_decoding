@@ -62,7 +62,15 @@ class QASRL_Pipeline(Text2TextGenerationPipeline):
             self.data_args.use_bilateral_predicate_marker = True
         if "append_verb_form" not in vars(self.data_args):
             self.data_args.append_verb_form = True
-        
+        self._update_config(**kwargs)
+    
+    def _update_config(self, **kwargs):
+        " Update self.model.config with initialization parameters and necessary defaults. "
+        # set default values that will always override model.config, but can overriden by __init__ kwargs
+        kwargs["max_length"] = kwargs.get("max_length", 80)
+        # override model.config with kwargs
+        for k,v in kwargs.items():
+            self.model.config.__dict__[k] = v       
         
     def _sanitize_parameters(self, **kwargs):
         preprocess_kwargs, forward_kwargs, postprocess_kwargs = {}, {}, {} # super()._sanitize_parameters(**kwargs)
