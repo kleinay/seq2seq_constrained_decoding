@@ -343,6 +343,20 @@ class DFA(UserDict):
         return DFA(dfa_as_dict, 0, accept_states={len(slots)})
     
     @staticmethod
+    def from_sequence_ids(sequence_ids: List[int]) -> 'DFA':
+        """ 
+        Returns a DFA which only accepts the given sequence. 
+        Takes a tokenized sequence (token_ids), suitable for constraining model to only generate this sequence.
+        """
+        s0 = 0 # start state
+        transitions = {
+            index: {token_id: index+1}
+            for index, token_id in enumerate(sequence_ids)
+        }
+        dfa = DFA(transitions, s0, accept_states=[len(sequence_ids)])
+        return dfa      
+    
+    @staticmethod
     def get_partial_dfa(intermediate_dfa: 'DFA', 
                         activating_symbols: Iterable[Alphabet],  
                         deactivating_symbols: Iterable[Alphabet] = [],
@@ -461,7 +475,15 @@ def test_concat_dfas():
     assert result_dfa('aarb~r~lll') == (True, '<2>_3', True)
     return result_dfa
 
+def test_sequence_dfa():
+    seq = ["a", "b", "c", "a", "g"]
+    dfa = DFA.from_sequence_ids(seq)
+    assert dfa('abc') == (True, 3, False)
+    assert dfa('abcag') == (True, 5, True)
+    assert dfa('abagr')[0] == False
+    assert dfa('abcagr')[0] == False
 
 if __name__ == "__main__":
     test_DFA()
     test_concat_dfas()
+    test_sequence_dfa()
