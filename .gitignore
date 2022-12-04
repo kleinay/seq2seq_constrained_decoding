@@ -2,3 +2,4 @@
 .venv
 .vscode
 __pycache__
+develop_and_test.ipynb
