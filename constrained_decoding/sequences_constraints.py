@@ -10,14 +10,16 @@ def is_prefix(lst: List[Any], prefix: List[Any]):
     "Is `prefix` a prefix of of `lst` "
     return lst[:len(prefix)] == prefix
 
+def filter_none(lst: Iterable[Any]) -> List[Any]:
+    return [e for e in lst if e is not None]
+
 class AllowedSequencesLogitsProcessor(LogitsProcessor):
     """
     A LogitsProcessor that constrain the output to be one of provided sequences.     
     """
-    def __init__(self, tokenizer, allowed_sequences: List[str]):
-        self.tokenizer = tokenizer  
-        self.allowed_sequences = allowed_sequences  
-        self.allowed_sequences_ids = [tokenizer(seq).input_ids for seq in allowed_sequences]
+    def __init__(self, allowed_sequences: List[List[int]], eos_token_id: Optional[int] = None):
+        self.allowed_sequences_ids = allowed_sequences  
+        self.eos_token_id = eos_token_id  
             
     def __call__(self, input_ids, scores):
         """
@@ -36,8 +38,8 @@ class AllowedSequencesLogitsProcessor(LogitsProcessor):
             if possible_allowed_sequences:
                 # derive allowed next tokens
                 cur_idx = len(beam_input_ids)
-                allowed_next_tokens = list(sorted({
-                    seq[cur_idx] if cur_idx < len(seq) else self.tokenizer.eos_token_id
+                allowed_next_tokens = filter_none(sorted({
+                    seq[cur_idx] if cur_idx < len(seq) else self.eos_token_id
                     for seq in possible_allowed_sequences}))
 
          
@@ -63,16 +65,21 @@ class ForbiddenSequencesLogitsProcessor(LogitsProcessor):
     A LogitsProcessor that constrain the output to disallow any of the provided sequences.
     The constraint is only applied when decoding the the last token in the forbidden sequence.      
     """
-    def __init__(self, tokenizer, forbidden_sequences: List[str]):
+    def __init__(self, forbidden_sequences: List[List[int]]):
         """ 
 
         Args:
-            tokenizer (_type_): _description_
-            forbidden_sequences (List[str]): the forbidden sequences.
+            forbidden_sequences (List[List[int]]): the forbidden sequences (tokenized into token_ids).
         """
-        self.tokenizer = tokenizer  
-        self.forbidden_sequences = forbidden_sequences  
-        self.forbidden_sequences_ids = [tokenizer(seq).input_ids for seq in forbidden_sequences]
+        # make sure `forbidden_sequences` is a list and not a tensor
+        if torch.is_tensor(forbidden_sequences):
+            if forbidden_sequences.ndim == 1:
+                forbidden_sequences = [forbidden_sequences.tolist()] # only one seq is provided
+            elif forbidden_sequences.ndim == 2:
+                forbidden_sequences = forbidden_sequences.tolist() # list of sequences
+            else:
+                raise ValueError(f"Expected a list of tokenized sequences, got tensor with ndim>2 which cannot be converted to List[List[int]]")
+        self.forbidden_sequences_ids = forbidden_sequences  
         context_and_last_token_pairs = [(tuple(seq[:-1]), seq[-1])
                                         for seq in self.forbidden_sequences_ids]
         self.context_to_forbidden_tokens = dictOfLists(context_and_last_token_pairs)
