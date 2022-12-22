@@ -47,12 +47,11 @@ print(tokenizer.batch_decode(out))
 # ['<pad> in the words in the words in the words in the words in the words in the words in']
 ```
 
-## Set decoding 
+## Set decoding
 
 In some scenarios, you would like to regard the output sequence as expressing a set of elements comprised of sub-sequences. For example, you might finetune your Seq2Seq model on a multi-label document classification task (e.g. generating the set of relation types occuring in the input document). 
 
 The `set_decoding.SetDecodingLogitProcessor` class can gurantee that no subsequence (e.g. a relation type) would occur more than once. Output subsequences are assumed to be defined using a special separator token.
-
 
 
 ## DFA-based constrained decoding
@@ -111,4 +110,4 @@ Our motivational use-case is [seq2seq-based QA-SRL parsing](https://huggingface.
 
 To model the task using a seq2seq paradigm, the QAs are linearized into a single target sequence, using separators between QA pairs, between question and answer, and between multiple answers. Furthermore, QASRL questions must adhere a slot-based template, while answers could only be continuous spans copied from the input sentence. 
 
-Check out the `qasrl_constrained_decoding.py` module to see how we leverage the `DFA` utilities for enforcing a valid QASRL output sequence.
+Check out the `qasrl.py` module to see how we leverage the `DFA` utilities for enforcing a valid QASRL output sequence.
