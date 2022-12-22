@@ -1,0 +1,3 @@
+include src/constrained_decoding/qasrl/data/qasrl_slots.json
+include src/constrained_decoding/version.txt
+include README.md
