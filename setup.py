@@ -1,4 +1,6 @@
 import setuptools
+import os.path
+from glob import glob
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
@@ -15,14 +17,16 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/kleinay/seq2seq_constrained_decoding",
-    packages=setuptools.find_packages(),
+    packages=setuptools.find_packages('src'),
+    py_modules=[os.path.splitext(os.path.basename(path))[0] for path in glob('src/*.py')],
+    package_dir={'': 'src'},
     install_requires=[
         'transformers>=4.14.1',
         'torch'
     ],
-    package_data={
-        "": ["src/constrained_decoding/qasrl/data/qasrl_slots.json"],
-    },
+    # package_data={
+    #     "": ["src/constrained_decoding/qasrl/data/qasrl_slots.json"],
+    # },
     include_package_data=True,
     classifiers=[
         "Programming Language :: Python :: 3",

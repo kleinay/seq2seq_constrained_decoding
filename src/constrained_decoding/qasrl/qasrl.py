@@ -78,7 +78,7 @@ def get_copy_dfa(tok_source_seq: List[str], terminate_token: Optional[str] = Non
     return dfa
  
 def get_qasrl_question_dfa(constrain_verb: bool):
-    qasrl_slots = json.load(open(repo_root_path / "qasrl_slots.json")) 
+    qasrl_slots = json.load(open(repo_root_path / "qasrl" / "data" / "qasrl_slots.json")) 
     # if constraining also verb to be taken from the slot vocabulary
     slots_order = ['wh', 'aux', 'subj', 'verb', 'obj', 'prep', 'obj2', '?']
     qasrl_slots_as_list = [qasrl_slots[name] for name in slots_order]
