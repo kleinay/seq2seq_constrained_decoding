@@ -153,12 +153,19 @@ class DFA(UserDict):
         dfa_iterator.current_state = current_state
         return dfa_iterator.step(input_symbol)
     
-    def adjust_for_tokenizer(self, tokenizer, inplace=False, convert_to_word_ids=False, set_eos_loop=True) -> 'DFA':
+    def adjust_for_tokenizer(self, tokenizer, 
+                             inplace=False, 
+                             convert_to_word_ids=False, 
+                             prepend_space_to_symbols=True, 
+                             set_eos_loop=True) -> 'DFA':
         """ 
         Adjust the DFA alphabet to fit tokenizer vocabulary. 
         
         :param inplace (bool, default `False`): Whether to modify `self` DFA or to return an adjusted copy. 
         :param convert_to_word_ids (bool, default `False`): if `True`, converts the automaton's alphabet to word_ids (integers). 
+        :param prepend_space_to_symbols (bool, default `True`): if `True`, every symbol in vocabulary (that doesn't start with a space) is prepended with a space before being tokenized.
+            This is critical for aligning manually-defined DFAs with tokenizer that maintain a preceding space as part of the token,
+            e.g.  GPT-Tokenizer or T5-Tokenizer. 
         :param set_eos_loop (bool, default `True`): if `True`, add transition from all accepting states to an "end-of-sequence" state 
             which will enforce the eos_token;
         
@@ -182,9 +189,12 @@ class DFA(UserDict):
             for symbol, tgt_state in transitions.copy().items():
                 if symbol == DFA.WILDCARD:
                     continue
-                # tok_symbol = list(map(get_tok_surface, tokenizer.tokenize(symbol)))
-                # new_symbol = symbol
-                tok_symbol = tokenizer.tokenize(symbol)
+                # prepend space to symbol before tokenization
+                symbol_to_tokenize = symbol
+                if prepend_space_to_symbols and not symbol.startswith(' '):
+                    symbol_to_tokenize = f" {symbol}"
+
+                tok_symbol = tokenizer.tokenize(symbol_to_tokenize)
                 if len(tok_symbol) == 0:
                     tok_symbol = [symbol]
                 if len(tok_symbol) == 1:

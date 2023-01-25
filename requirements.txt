@@ -1,2 +1,2 @@
 torch
-transformers==4.14.1
+transformers>=4.15.0

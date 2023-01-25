@@ -21,7 +21,7 @@ setuptools.setup(
     py_modules=[os.path.splitext(os.path.basename(path))[0] for path in glob('src/*.py')],
     package_dir={'': 'src'},
     install_requires=[
-        'transformers>=4.14.1',
+        'transformers>=4.15.0',
         'torch'
     ],
     # package_data={

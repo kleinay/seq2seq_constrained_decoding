@@ -3,8 +3,7 @@ from typing import List, Iterable, Tuple, Any, Union, Dict, Optional, Callable
 import torch
 import numpy as np
 from transformers import (
-    AutoTokenizer, 
-    T5TokenizerFast, 
+    PreTrainedTokenizer, 
     LogitsProcessor, 
 )
 
@@ -60,15 +59,16 @@ class DfaDecodingLogitsProcessor(LogitsProcessor):
     You can also achieve dfa-constrained decoding using `set_decoding_to_dfa_constrained` (below).
         
     """
-    def __init__(self, tokenizer, dfa: DFA, enforce_accept_state: bool = True):
-        self.tokenizer = tokenizer
+    def __init__(self, tokenizer: PreTrainedTokenizer, dfa: DFA, enforce_accept_state: bool = True):
+        self.tokenizer: PreTrainedTokenizer = tokenizer
         adjusted_dfa = dfa.adjust_for_tokenizer(tokenizer)
         self.orig_dfa = dfa
         self.dfa = adjusted_dfa
         self.enforce_accept_state = enforce_accept_state
         
-        self.vocab_words = np.array(list(tokenizer.vocab.keys()))
-        self.vocab_word_ids = np.array(list(tokenizer.vocab.values()))
+        self.vocab: Dict[str, int] = tokenizer.get_vocab()
+        self.vocab_words = np.array(list(self.vocab.keys()))
+        self.vocab_word_ids = np.array(list(self.vocab.values()))
 
         
     def __call__(self, input_ids, scores):

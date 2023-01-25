@@ -4,7 +4,7 @@ LogitProcessors for mostly simple "X should/n't follow Y" constraints.
 from typing import List, Iterable, Tuple, Any, Union, Dict, Optional, Callable
 
 import torch
-from transformers import LogitsProcessor
+from transformers import LogitsProcessor, PreTrainedTokenizer
 
 
 def rindex(lst, e):
@@ -29,7 +29,7 @@ class XMustFollowYLogitsProcessor(LogitsProcessor):
     A LogitsProcessor that constrain the following rule:
         After a sub-sequence identical to `context` (Y), the next token or list of tokens must perfectly match `constraint` (X).     
     """
-    def __init__(self, tokenizer, context: str, constraint: str):
+    def __init__(self, tokenizer: PreTrainedTokenizer, context: str, constraint: str):
         self.tokenizer = tokenizer  
         self.context = context  
         self.constraint = constraint 

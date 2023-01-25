@@ -1,6 +1,6 @@
 import sys
-sys.path.append("/home/nlp/kleinay/Parsing/Seq2Seq_QASRL_Parsing/qasrl_bart/seq2seq_constrained_decoding")
-from constrained_decoding.sequences_constraints import AllowedSequencesLogitsProcessor, ForbiddenSequencesLogitsProcessor
+
+from constrained_decoding.logits_processors.sequences_constraints import AllowedSequencesLogitsProcessor, ForbiddenSequencesLogitsProcessor
 
 from transformers import AutoModelForCausalLM
 from transformers import AutoTokenizer

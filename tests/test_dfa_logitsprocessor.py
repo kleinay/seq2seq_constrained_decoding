@@ -3,8 +3,6 @@ from transformers import (
     T5TokenizerFast,
     LogitsProcessorList,
     AutoModelForSeq2SeqLM,
-    AutoModelForCausalLM, 
-    LogitsProcessor, 
 )
 import torch
 

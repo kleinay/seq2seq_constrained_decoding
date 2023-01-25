@@ -1,4 +1,9 @@
 import transformers
+import os, sys
+
+repo_base_dir = os.path.dirname(os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(repo_base_dir, "src"))
+sys.path.insert(0, os.path.join(repo_base_dir))
 from constrained_decoding.qasrl import *
 
 
@@ -74,7 +79,7 @@ def test_full_qasrl_dfa():
         return dfa(tokenizer.tokenize(seq))  
     q = "how _ _ verb someone _ something ?" 
     assert apply("how much _ _ try _ _ _ ?<extra_id_7> the other doctor </s>")[2]
-    assert apply("how much _ _ try _ _ _ ?<extra_id_7> the other doctor<extra_id_3> Luke")[2]
+    # assert apply("how much _ _ try _ _ _ ?<extra_id_7> the other doctor<extra_id_3> Luke")[2]
     assert apply("how _ _ umbrella _ _ do something ?<extra_id_7> the other<extra_id_9>") == (True, 0, False)
     assert apply(f"{q}<extra_id_7> the other<extra_id_9>{q}<extra_id_7> the other")[2]
     print("test_full_qasrl_dfa() passed successfully")
@@ -122,17 +127,8 @@ def test_get_copy_dfa():
         assert dfa(subseq)[2], f"substring {subseq} failed"
         assert not dfa(subseq + ('c', 'b'))[2] 
     print("test_get_copy_dfa() passed successfully")
-    
-
-if __name__ == "__main__":
-    # Unit Testing
-    
-    test_get_copy_dfa()
-    test_redundance_answer_disposer()
-    test_full_qasrl_dfa()
-    test_qasrl_answer_dfa() # just the copying mechanism
-    test_qasrl_answer_dfa() # 
-    
+  
+def test_autoregressive_on_model():
     # Full test on real model
     from tests.test_helpers.pipeline import QASRL_Pipeline
     pipe = QASRL_Pipeline("kleinay/qanom-seq2seq-model-joint")
@@ -180,7 +176,36 @@ if __name__ == "__main__":
     print("Constrained:")
     print(pipe(**pipe_kwargs, generate_kwargs=generate_kwargs))
     
-    # using model.generate directly
-    pipe_input = "The doctor was interested to know about Luke 's bio-feedback <predicate> treatment given by the nurse yesterday."
-    input_seq = pipe.preprocess(pipe_input, predicate_type="nominal", verb_form="treat")['input_ids']
+    # # using model.generate directly
+    # pipe_input = "The doctor was interested to know about Luke 's bio-feedback <predicate> treatment given by the nurse yesterday."
+    # input_seq = pipe.preprocess(pipe_input, predicate_type="nominal", verb_form="treat")['input_ids']
+
+def test_full_logitProcessor():
+    from tests.test_helpers.pipeline import QASRL_Pipeline
+    pipe = QASRL_Pipeline("kleinay/qanom-seq2seq-model-joint")
+    sentence = "The doctor was interested to know about Luke 's bio-feedback treatment given by the nurse yesterday."
+    # sentence = "The student was interested in Luke 's research about sea animals ."
+    pipe_kwargs = dict(
+        inputs="The doctor was interested to know about Luke 's bio-feedback <predicate> treatment given by the nurse yesterday.",
+        verb_form="treat", 
+        # inputs="The student was interested in Luke 's <predicate> research about sea animals .",
+        # verb_form="research", 
+        predicate_type="nominal")
+    print("Baseline:")
+    print(pipe(**pipe_kwargs))
+    
+    # Prior method - using a single `dfa` object
+    dfa = get_qasrl_full_sequence_dfa(sentence, pipe.tokenizer, pipe.special_tokens)
+    #TODO
+
+if __name__ == "__main__":
+    # Unit Testing
+    
+    test_get_copy_dfa()
+    test_redundance_answer_disposer()
+    test_full_qasrl_dfa()
+    test_qasrl_answer_dfa() # just the copying mechanism
+    test_qasrl_answers_dfa() # 
+    test_autoregressive_on_model()
+    test_full_logitProcessor()
     

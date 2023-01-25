@@ -2,7 +2,7 @@ from typing import List, Iterable, Tuple, Any, Union, Dict, Optional, Callable
 
 import torch
 import numpy as np
-from transformers import AutoTokenizer, LogitsProcessor
+from transformers import AutoTokenizer, PreTrainedTokenizer, LogitsProcessor
 
 Element = List[str] 
 
@@ -52,12 +52,13 @@ class SetDecodingLogitsProcessor(LogitsProcessor):
     Implementation: at each step of the beam search, consider previous "elements" occuring in output, 
      and ban tokens that complement the current element sub-sequence to be equivalent to an pre-occuring element.    
     """
-    def __init__(self, tokenizer, elements_sep: str, element_eq_func: Optional[Callable[[Element, Element], bool]] = None):
+    def __init__(self, tokenizer: PreTrainedTokenizer, elements_sep: str, element_eq_func: Optional[Callable[[Element, Element], bool]] = None):
         self.tokenizer = tokenizer
         self.elements_sep = elements_sep
         self.element_eq_func = element_eq_func
-        self.vocab_words = np.array(list(tokenizer.vocab.keys()))
-        self.vocab_word_ids = np.array(list(tokenizer.vocab.values()))
+        self.vocab: Dict[str, int] = tokenizer.get_vocab()
+        self.vocab_words = np.array(list(self.vocab.keys()))
+        self.vocab_word_ids = np.array(list(self.vocab.values()))
     
     def get_prev_and_current_elements(self, b_input_ids) -> Tuple[List[Element], Element]:
         # Returns previous_elements, current_element
